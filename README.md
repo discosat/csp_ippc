@@ -55,6 +55,12 @@ Example of a valid pipeline configuration file:
   name: encode
 ```
 
+Note: param_id is the id of a module configuration and corresponds to <module_idx> set by ippc module below.
+In the example above the modules are called with order 1,2:
+
+1. the demosaic module is called with configuration stored at module_config_param_1
+2. the encode module is called with configuration stored at module_config_param_2
+
 ### Command 2: `ippc module`
 
 This command updates the parameters for a specific pipeline module.
