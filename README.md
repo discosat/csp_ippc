@@ -46,13 +46,19 @@ ippc pipeline -n 162 1 "pipeline_config.yaml"
 Example of a valid pipeline configuration file:
 
 ```yaml
-- order: 1
-  param_id: 1
-  name: demosaic
-
-- order: 2
-  param_id: 2
-  name: encode
+pipeline:
+- name: demosaic
+  implementations:
+  - param_id: 0
+    effort_level: default
+- name: encode
+  implementations:
+  - param_id: 1
+    effort_level: low
+  - param_id: 2
+    effort_level: medium
+  - param_id: 3
+    effort_level: high
 ```
 
 Note: param_id is the id of a module configuration and corresponds to <module_idx> set by ippc module below.

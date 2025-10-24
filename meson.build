@@ -32,3 +32,17 @@ csp_ippc_lib = static_library('csp_ippc',
 )
 
 csp_ippc_dep = declare_dependency(include_directories : csp_ippc_inc, link_with : csp_ippc_lib)
+
+# extract_pipeline = executable(
+#     'extract_pipeline',
+#     sources: [
+# 		'src/extract_pipeline.c',
+# 		'src/protobuf/pipeline_config.pb-c.c',
+# 		'src/protobuf/module_config.pb-c.c',
+# 		'src/protobuf/metadata.pb-c.c',
+# 		],
+#     include_directories: csp_ippc_inc,
+#     dependencies: [proto_c_dep, yaml_dep],
+#     install: true,
+# 	link_args: ['-ldl'],
+# )
