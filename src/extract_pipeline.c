@@ -456,12 +456,80 @@ int parse_pipeline_yaml_file(const char *filename, PipelineDefinition *pipeline)
 
     pipeline_cleanup_resources(&parser, NULL, fh);
 
+    /* Deep-copy modules and their implementations so pipeline owns all memory.
+       This avoids dangling pointers into parser-local arrays. */
     pipeline->n_modules = state.n_modules;
+    if (pipeline->n_modules > 0)
+    {
+        pipeline->modules = malloc(pipeline->n_modules * sizeof(ModuleDefinition *));
+        if (!pipeline->modules)
+        {
+            fprintf(stderr, "Error: Failed to allocate pipeline->modules\n");
+            return -1;
+        }
+    }
     for (size_t i = 0; i < state.n_modules; i++)
     {
-        pipeline->modules = realloc(pipeline->modules, (i + 1) * sizeof(ModuleDefinition *));
-        pipeline->modules[i] = &state.mlist[i];
+        ModuleDefinition *src = &(state.mlist[i]);
+        ModuleDefinition *dst = malloc(sizeof(ModuleDefinition));
+        if (!dst)
+        {
+            fprintf(stderr, "Error: Failed to allocate ModuleDefinition copy\n");
+            return -1;
+        }
+        /* Initialize then copy scalars */
+        *dst = MODULE_DEFINITION__INIT;
+        dst->n_implementations = src->n_implementations;
+
+        /* Copy name string if present */
+        if (src->name)
+            dst->name = strdup(src->name);
+        else
+            dst->name = NULL;
+
+        /* Deep-copy implementations */
+        if (src->n_implementations > 0)
+        {
+            dst->implementations = malloc(src->n_implementations * sizeof(Implementation *));
+            if (!dst->implementations)
+            {
+                fprintf(stderr, "Error: Failed to allocate implementations array\n");
+                free(dst->name);
+                free(dst);
+                return -1;
+            }
+            for (size_t j = 0; j < src->n_implementations; j++)
+            {
+                Implementation *s_impl = src->implementations[j];
+                Implementation *d_impl = malloc(sizeof(Implementation));
+                if (!d_impl)
+                {
+                    fprintf(stderr, "Error: Failed to allocate Implementation copy\n");
+                    /* cleanup minimal to avoid leaking everything in this error path */
+                    for (size_t k = 0; k < j; k++)
+                        free(dst->implementations[k]);
+                    free(dst->implementations);
+                    free(dst->name);
+                    free(dst);
+                    return -1;
+                }
+                /* copy primitive fields */
+                *d_impl = IMPLEMENTATION__INIT;
+                d_impl->param_id = s_impl->param_id;
+                d_impl->effort_level = s_impl->effort_level;
+                /* if Implementation had any string fields, strdup them here */
+                dst->implementations[j] = d_impl;
+            }
+        }
+        else
+        {
+            dst->implementations = NULL;
+        }
+
+        pipeline->modules[i] = dst;
     }
 
+    /* Optionally free parser-owned state.mlist + any allocated arrays in state
+       if you want to avoid leaking the parser temporary storage. */
     return 0;
 }

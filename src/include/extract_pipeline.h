@@ -9,7 +9,7 @@ extern "C"
 #include "pipeline_config.pb-c.h"
 
     /* Parse a YAML file and populate a PipelineDefinition structure.
-       Returns 0 on success, -1 on failure. */
+        Returns 0 on success, -1 on failure. */
     int parse_pipeline_yaml_file(const char *filename, PipelineDefinition *pipeline);
 
 #ifdef __cplusplus
