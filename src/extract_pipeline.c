@@ -1,3 +1,4 @@
+#include "extract_pipeline.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -10,7 +11,7 @@
 #include "module_config.pb-c.h"
 #include "metadata.pb-c.h"
 
-int initialize_parser(const char *filename, yaml_parser_t *parser, FILE *fh)
+int pipeline_initialize_parser(const char *filename, yaml_parser_t *parser, FILE *fh)
 {
     fh = fopen(filename, "r");
 
@@ -32,7 +33,7 @@ int initialize_parser(const char *filename, yaml_parser_t *parser, FILE *fh)
     return 0;
 }
 
-void cleanup_resources(yaml_parser_t *parser, yaml_event_t *event, FILE *fh)
+void pipeline_cleanup_resources(yaml_parser_t *parser, yaml_event_t *event, FILE *fh)
 {
     if (event != NULL)
     {
@@ -46,7 +47,8 @@ void cleanup_resources(yaml_parser_t *parser, yaml_event_t *event, FILE *fh)
     }
 }
 
-enum state
+/* Renamed enum to avoid collisions */
+enum pipeline_state
 {
     STATE_START,    /* start state */
     STATE_STREAM,   /* start/end stream */
@@ -67,9 +69,10 @@ enum state
     STATE_STOP /* end state */
 };
 
-struct parser_state
+/* Renamed struct to avoid collisions */
+struct pipeline_parser_state
 {
-    enum state state;               /* The current parse state */
+    enum pipeline_state state;      /* The current parse state */
     struct ModuleDefinition m;      /* Module data elements. */
     struct Implementation i;        /* Implementation data elements. */
     struct Implementation *ilist;   /* List of 'implementation' objects. */
@@ -83,7 +86,8 @@ struct parser_state
  * import our data into raw c data structures. Error processing
  * is keep to a mimimum since this is just an example.
  */
-int consume_event(struct parser_state *s, yaml_event_t *event)
+/* signature updated to use pipeline_parser_state */
+int pipeline_consume_event(struct pipeline_parser_state *s, yaml_event_t *event)
 {
     char *value;
 
@@ -385,10 +389,10 @@ int parse_pipeline_yaml_file(const char *filename, PipelineDefinition *pipeline)
 {
     yaml_parser_t parser;
     FILE *fh = NULL;
-    if (initialize_parser(filename, &parser, fh) < 0)
+    if (pipeline_initialize_parser(filename, &parser, fh) < 0)
         return -1;
 
-    struct parser_state state;
+    struct pipeline_parser_state state; // updated type here
     memset(&state, 0, sizeof(state));
     state.state = STATE_START;
 
@@ -404,7 +408,7 @@ int parse_pipeline_yaml_file(const char *filename, PipelineDefinition *pipeline)
             fprintf(stderr, "Error: Parser error %d\n", parser.error);
             return -1;
         }
-        status = consume_event(&state, &event);
+        status = pipeline_consume_event(&state, &event); // updated call
         yaml_event_delete(&event);
         if (status < 0)
         {
@@ -415,12 +419,7 @@ int parse_pipeline_yaml_file(const char *filename, PipelineDefinition *pipeline)
 
     printf("Parsed %zu modules in pipeline.\n", state.n_modules);
 
-    yaml_parser_delete(&parser);
-
-    if (fh != NULL)
-    {
-        fclose(fh);
-    }
+    pipeline_cleanup_resources(&parser, NULL, fh);
 
     pipeline->n_modules = state.n_modules;
     for (size_t i = 0; i < state.n_modules; i++)

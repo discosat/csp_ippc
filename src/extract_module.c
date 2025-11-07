@@ -1,3 +1,5 @@
+#include "extract_module.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -6,7 +8,7 @@
 
 #include "module_config.pb-c.h"
 
-int initialize_parser(const char *filename, yaml_parser_t *parser, FILE **fh)
+int module_initialize_parser(const char *filename, yaml_parser_t *parser, FILE **fh)
 {
     *fh = fopen(filename, "r");
 
@@ -29,7 +31,7 @@ int initialize_parser(const char *filename, yaml_parser_t *parser, FILE **fh)
     return 0;
 }
 
-void cleanup_resources(yaml_parser_t *parser, yaml_event_t *event, FILE *fh)
+void module_cleanup_resources(yaml_parser_t *parser, yaml_event_t *event, FILE *fh)
 {
     if (event != NULL)
     {
@@ -43,7 +45,8 @@ void cleanup_resources(yaml_parser_t *parser, yaml_event_t *event, FILE *fh)
     }
 }
 
-enum state
+/* Renamed enum to avoid collisions */
+enum module_state
 {
     STATE_START,
     STATE_STREAM,
@@ -60,9 +63,10 @@ enum state
     STATE_STOP
 };
 
-struct parser_state
+/* Renamed struct to avoid collisions */
+struct module_parser_state
 {
-    enum state state;
+    enum module_state state;
     ModuleConfig m;
     /* temp parameter being built */
     char *p_key;
@@ -79,7 +83,7 @@ struct parser_state
     size_t n_parameters;
 };
 
-static void reset_current_param(struct parser_state *s)
+static void reset_current_param(struct module_parser_state *s)
 {
     if (s->p_key)
     {
@@ -91,7 +95,8 @@ static void reset_current_param(struct parser_state *s)
 }
 
 /* Consume YAML events and update parser_state */
-int consume_event(struct parser_state *s, yaml_event_t *event)
+/* signature updated to use module_parser_state */
+int module_consume_event(struct module_parser_state *s, yaml_event_t *event)
 {
     char *value;
 
@@ -401,10 +406,10 @@ int parse_module_yaml_file(const char *filename, ModuleConfig *module_config)
 {
     yaml_parser_t parser;
     FILE *fh = NULL;
-    if (initialize_parser(filename, &parser, &fh) < 0)
+    if (module_initialize_parser(filename, &parser, &fh) < 0)
         return -1;
 
-    struct parser_state state;
+    struct module_parser_state state; // updated type here
     memset(&state, 0, sizeof(state));
     state.state = STATE_START;
     state.m = (ModuleConfig)MODULE_CONFIG__INIT;
@@ -418,21 +423,21 @@ int parse_module_yaml_file(const char *filename, ModuleConfig *module_config)
         if (status == 0)
         {
             fprintf(stderr, "Parser error %d\n", parser.error);
-            cleanup_resources(&parser, NULL, fh);
+            module_cleanup_resources(&parser, NULL, fh);
             return -1;
         }
-        status = consume_event(&state, &event);
+        status = module_consume_event(&state, &event); // updated call
         yaml_event_delete(&event);
         if (status < 0)
         {
             fprintf(stderr, "Failed to consume event\n");
-            cleanup_resources(&parser, NULL, fh);
+            module_cleanup_resources(&parser, NULL, fh);
             return -1;
         }
     } while (state.state != STATE_STOP);
 
     /* cleanup parser resources */
-    cleanup_resources(&parser, NULL, fh);
+    module_cleanup_resources(&parser, NULL, fh);
 
     /* Assign parsed values into provided ModuleConfig */
     module_config->latency_cost = state.m.latency_cost;
