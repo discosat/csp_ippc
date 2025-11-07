@@ -6,29 +6,32 @@
 #include <yaml.h>
 #include <errno.h>
 #include <math.h>
+#include <string.h>
 
 #include "pipeline_config.pb-c.h"
 #include "module_config.pb-c.h"
 #include "metadata.pb-c.h"
 
-int pipeline_initialize_parser(const char *filename, yaml_parser_t *parser, FILE *fh)
+int pipeline_initialize_parser(const char *filename, yaml_parser_t *parser, FILE **fh)
 {
-    fh = fopen(filename, "r");
+    *fh = fopen(filename, "r");
+    if (*fh == NULL)
+    {
+        fprintf(stderr, "Error: Failed to open file %s: %s\n", filename, strerror(errno));
+        return -1;
+    }
 
     /* Initialize parser */
     if (!yaml_parser_initialize(parser))
     {
         fprintf(stderr, "Error: Failed to initialize parser!\n");
-        return -1;
-    }
-    if (fh == NULL)
-    {
-        fprintf(stderr, "Error: Failed to open file!\n");
+        fclose(*fh);
+        *fh = NULL;
         return -1;
     }
 
     /* Set input file */
-    yaml_parser_set_input_file(parser, fh);
+    yaml_parser_set_input_file(parser, *fh);
 
     return 0;
 }
@@ -209,31 +212,63 @@ int pipeline_consume_event(struct pipeline_parser_state *s, yaml_event_t *event)
             }
             break;
         case YAML_MAPPING_END_EVENT:
-            // printf("Completed module: %s with %zu implementations\n", s->m.name, s->n_implementations);
             // allocate new module in list
-            ModuleDefinition *temp = realloc(s->mlist, ++(s->n_modules) * sizeof(ModuleDefinition));
-            if (!(temp))
             {
-                fprintf(stderr, "Error: Failed to allocate memory for ModuleDefinition during parsing\n");
-                return -1;
+                ModuleDefinition *temp = realloc(s->mlist, ++(s->n_modules) * sizeof(ModuleDefinition));
+                if (!temp)
+                {
+                    fprintf(stderr, "Error: Failed to allocate memory for ModuleDefinition during parsing\n");
+                    return -1;
+                }
+                s->mlist = temp;
+
+                // make a per-module copy of the implementations so subsequent reallocs of s->ilist
+                // won't invalidate pointers for already-pushed modules
+                if (s->n_implementations > 0)
+                {
+                    Implementation *impl_copy = malloc(s->n_implementations * sizeof(Implementation));
+                    if (!impl_copy)
+                    {
+                        fprintf(stderr, "Error: Failed to allocate memory for implementations copy\n");
+                        return -1;
+                    }
+                    memcpy(impl_copy, s->ilist, s->n_implementations * sizeof(Implementation));
+
+                    Implementation **impl_ptrs = malloc(s->n_implementations * sizeof(Implementation *));
+                    if (!impl_ptrs)
+                    {
+                        free(impl_copy);
+                        fprintf(stderr, "Error: Failed to allocate memory for implementation pointers\n");
+                        return -1;
+                    }
+                    for (size_t ii = 0; ii < s->n_implementations; ii++)
+                    {
+                        impl_ptrs[ii] = &impl_copy[ii];
+                    }
+
+                    s->m.n_implementations = s->n_implementations;
+                    s->m.implementations = impl_ptrs;
+
+                    // free the temporary s->ilist array (we've copied its contents)
+                    free(s->ilist);
+                    s->ilist = NULL;
+                }
+                else
+                {
+                    s->m.n_implementations = 0;
+                    s->m.implementations = NULL;
+                }
+
+                s->mlist[s->n_modules - 1] = s->m;
+
+                // reset current module and implementation temp state
+                ModuleDefinition module = MODULE_DEFINITION__INIT;
+                s->m = module;
+                Implementation implementation = IMPLEMENTATION__INIT;
+                s->i = implementation;
+                s->n_implementations = 0;
+                s->state = STATE_MVALUES;
             }
-            s->mlist = temp;
-            // push the current module onto the list
-            s->m.n_implementations = s->n_implementations;
-            s->m.implementations = malloc(s->n_implementations * sizeof(Implementation *));
-            for (size_t i = 0; i < s->n_implementations; i++)
-            {
-                s->m.implementations[i] = &(s->ilist[i]);
-            }
-            s->mlist[s->n_modules - 1] = s->m;
-            // reset current module
-            ModuleDefinition module = MODULE_DEFINITION__INIT;
-            s->m = module;
-            Implementation implementation = IMPLEMENTATION__INIT;
-            s->i = implementation;
-            s->n_implementations = 0;
-            s->ilist = NULL;
-            s->state = STATE_MVALUES;
             break;
         default:
             fprintf(stderr, "Unexpected event %d in state %d.\n", event->type, s->state);
@@ -389,7 +424,7 @@ int parse_pipeline_yaml_file(const char *filename, PipelineDefinition *pipeline)
 {
     yaml_parser_t parser;
     FILE *fh = NULL;
-    if (pipeline_initialize_parser(filename, &parser, fh) < 0)
+    if (pipeline_initialize_parser(filename, &parser, &fh) < 0)
         return -1;
 
     struct pipeline_parser_state state; // updated type here
