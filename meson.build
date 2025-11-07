@@ -11,6 +11,8 @@ csp_ippc_src = files([
 	'src/protobuf/pipeline_config.pb-c.c',
 	'src/protobuf/module_config.pb-c.c',
 	'src/protobuf/metadata.pb-c.c',
+	'src/extract_module.c',
+	'src/extract_pipeline.c',
 ])
 
 csp_ippc_inc = include_directories('src/include', 'src/include/protobuf')
@@ -37,7 +39,7 @@ csp_ippc_dep = declare_dependency(include_directories : csp_ippc_inc, link_with 
 # extract_pipeline = executable(
 #     'extract_pipeline',
 #     sources: [
-# 		'src/extract_pipeline.c',
+# 		'src/extract_pipeline_main.c',
 # 		'src/protobuf/pipeline_config.pb-c.c',
 # 		'src/protobuf/module_config.pb-c.c',
 # 		'src/protobuf/metadata.pb-c.c',
@@ -51,7 +53,7 @@ csp_ippc_dep = declare_dependency(include_directories : csp_ippc_inc, link_with 
 # extract_module = executable(
 #     'extract_module',
 #     sources: [
-# 		'src/extract_module.c',
+# 		'src/extract_module_main.c',
 # 		'src/protobuf/pipeline_config.pb-c.c',
 # 		'src/protobuf/module_config.pb-c.c',
 # 		'src/protobuf/metadata.pb-c.c',

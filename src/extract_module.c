@@ -393,6 +393,10 @@ int consume_event(struct parser_state *s, yaml_event_t *event)
     return 0;
 }
 
+/* Parse a YAML file and populate a ModuleConfig structure.
+   Returns 0 on success, -1 on failure. The returned ModuleConfig
+   will own allocated ConfigParameter pointers and strings; caller
+   must free them when done. */
 int parse_module_yaml_file(const char *filename, ModuleConfig *module_config)
 {
     yaml_parser_t parser;
@@ -442,54 +446,5 @@ int parse_module_yaml_file(const char *filename, ModuleConfig *module_config)
     return 0;
 }
 
-/* Replace previous main to delegate to parse_module_yaml_file for CLI use */
-int main(int argc, char **argv)
-{
-    if (argc < 2)
-    {
-        printf("Usage: %s <module-config-file>\n", argv[0]);
-        exit(EXIT_FAILURE);
-    }
-
-    const char *filename = argv[1];
-    printf("Extracting module configuration from %s\n", filename);
-
-    ModuleConfig module = MODULE_CONFIG__INIT;
-    if (parse_module_yaml_file(filename, &module) < 0)
-    {
-        fprintf(stderr, "Failed to parse module yaml %s\n", filename);
-        return -1;
-    }
-
-    /* Print parsed ModuleConfig */
-    printf("ModuleConfig: latency_cost=%d energy_cost=%d n_parameters=%zu\n",
-           module.latency_cost, module.energy_cost, module.n_parameters);
-    for (size_t i = 0; i < module.n_parameters; i++)
-    {
-        ConfigParameter *p = module.parameters[i];
-        printf(" Param %zu: key=%s type_case=%d ", i + 1, p->key ? p->key : "(null)", p->value_case);
-        switch (p->value_case)
-        {
-        case CONFIG_PARAMETER__VALUE_BOOL_VALUE:
-            printf("bool=%d\n", p->bool_value);
-            break;
-        case CONFIG_PARAMETER__VALUE_INT_VALUE:
-            printf("int=%d\n", p->int_value);
-            break;
-        case CONFIG_PARAMETER__VALUE_FLOAT_VALUE:
-            printf("float=%f\n", p->float_value);
-            break;
-        case CONFIG_PARAMETER__VALUE_STRING_VALUE:
-            printf("string=%s\n", p->string_value ? p->string_value : "(null)");
-            break;
-        default:
-            printf("no-value\n");
-            break;
-        }
-    }
-
-    /* Note: not freeing allocated ConfigParameter pointers here for brevity;
-       caller should free ModuleConfig.parameters and contained memory when done. */
-
-    return 0;
-}
+/* main() removed: this translation unit is now a library implementation.
+   For testing, build extract_module_main.c which calls parse_module_yaml_file(). */
