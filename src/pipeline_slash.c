@@ -19,6 +19,8 @@
 #include "metadata.pb-c.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
+#include "extract_module.h"
+#include "extract_pipeline.h"
 
 #define MAX_MODULES 20
 #define MAX_PIPELINES 6
@@ -453,58 +455,6 @@ int consume_event(struct parser_state *s, yaml_event_t *event)
 	return 0;
 }
 
-int parse_pipeline_yaml_file(const char *filename, PipelineDefinition *pipeline)
-{
-	yaml_parser_t parser;
-	FILE *fh = NULL;
-	if (initialize_parser(filename, &parser, fh) < 0)
-		return -1;
-
-	struct parser_state state;
-	memset(&state, 0, sizeof(state));
-	state.state = STATE_START;
-
-	int status = 0;
-
-	do
-	{
-		yaml_event_t event;
-
-		status = yaml_parser_parse(&parser, &event);
-		if (status < 0)
-		{
-			fprintf(stderr, "Error: Parser error %d\n", parser.error);
-			return -1;
-		}
-		status = consume_event(&state, &event);
-		yaml_event_delete(&event);
-		if (status < 0)
-		{
-			fprintf(stderr, "Error: Failed to consume event\n");
-			return -1;
-		}
-	} while (state.state != STATE_STOP);
-
-	printf("Parsed %zu modules in pipeline.\n", state.n_modules);
-
-	yaml_parser_delete(&parser);
-
-	if (fh != NULL)
-	{
-		fclose(fh);
-	}
-
-	// Insert ModuleDefinitions into PipelineDefinition
-	pipeline.n_modules = state.n_modules;
-	for (size_t i = 0; i < state.n_modules; i++)
-	{
-		pipeline.modules = realloc(pipeline.modules, (i + 1) * sizeof(ModuleDefinition *));
-		pipeline.modules[i] = &state.mlist[i];
-	}
-
-	return 0;
-}
-
 static int slash_csp_configure_pipeline(struct slash *slash)
 {
 	unsigned int node = slash_dfl_node; // fetch current node id
@@ -595,7 +545,7 @@ static int slash_csp_configure_pipeline(struct slash *slash)
 	pipeline_config.name = name;
 
 	// Insert packed pipeline definition into parameter
-	if (param_push_single(&pipeline_config, -1, buffer, 0, node, timeout, paramver, ack_with_pull) < 0)
+	if (param_push_single(&pipeline_config, -1, CSP_PRIO_NORM, buffer, 0, node, timeout, paramver, ack_with_pull) < 0)
 	{
 		printf("No response\n");
 		return SLASH_EIO;
@@ -605,135 +555,6 @@ static int slash_csp_configure_pipeline(struct slash *slash)
 }
 
 slash_command_sub(ippc, pipeline, slash_csp_configure_pipeline, "[OPTIONS...] <pipeline-idx> <config-file>", "Configure a specific pipeline");
-
-int parse_module_yaml_file(const char *filename, ModuleConfig *module_config)
-{
-	yaml_parser_t parser;
-	FILE *fh = NULL;
-	if (initialize_parser(filename, &parser, fh) < 0)
-		return -1;
-
-	/* Module definitions */
-	ConfigParameter *params = NULL;
-	int param_idx = -1;	 // current module index
-	int param_count = 0; // find total amount of modules
-
-	/* START parsing */
-	yaml_event_t event;
-	while (1)
-	{
-		if (!yaml_parser_parse(&parser, &event))
-		{
-			printf("Error: Parser error %d\n", parser.error);
-			return -1;
-		}
-		switch (event.type)
-		{
-		case YAML_MAPPING_START_EVENT:
-			// New Dash
-			param_idx++;
-			ConfigParameter *temp = realloc(params, (param_count + 1) * sizeof(ConfigParameter));
-			if (!temp)
-			{
-				fprintf(stderr, "Error: Failed to allocate memory for ConfigParameter during parsing\n");
-				return -1;
-			}
-			params = temp;
-
-			// Fill in the new struct
-			ConfigParameter param = CONFIG_PARAMETER__INIT;
-			params[param_idx] = param;
-
-			param_count++;
-			break;
-		case YAML_SCALAR_EVENT:
-			// New set of ModuleDefinition encountered
-			if (strcmp((char *)event.data.scalar.value, "key") == 0)
-			{
-				// Expect the next event to be the value of order
-				if (!yaml_parser_parse(&parser, &event))
-					break;
-				params[param_idx].key = strdup((char *)event.data.scalar.value);
-			}
-			else if (strcmp((char *)event.data.scalar.value, "type") == 0)
-			{
-				// Expect the next event to be the value of name
-				if (!yaml_parser_parse(&parser, &event))
-					break;
-				if (safe_atoi((char *)event.data.scalar.value, (int *)&params[param_idx].value_case) < 0)
-				{
-					return -1;
-				}
-			}
-			else if (strcmp((char *)event.data.scalar.value, "value") == 0)
-			{
-				// Expect the next event to be the value of param_id
-				if (!yaml_parser_parse(&parser, &event))
-					break;
-				switch (params[param_idx].value_case)
-				{
-				case CONFIG_PARAMETER__VALUE_BOOL_VALUE:
-					if (strcmp((char *)event.data.scalar.value, "true") == 0)
-					{
-						params[param_idx].bool_value = 1;
-					}
-					else if (strcmp((char *)event.data.scalar.value, "false") == 0)
-					{
-						params[param_idx].bool_value = 0;
-					}
-					else
-					{
-						fprintf(stderr, "Error: Could not parse %s to boolean value\nAllowed values are: true, false\n", (char *)event.data.scalar.value);
-						return -1;
-					}
-					break;
-				case CONFIG_PARAMETER__VALUE_INT_VALUE:
-					if (safe_atoi((char *)event.data.scalar.value, &params[param_idx].int_value) < 0)
-					{
-						return -1;
-					}
-					break;
-				case CONFIG_PARAMETER__VALUE_FLOAT_VALUE:
-					if (safe_atof((char *)event.data.scalar.value, &params[param_idx].float_value) < 0)
-					{
-						return -1;
-					}
-					break;
-				case CONFIG_PARAMETER__VALUE_STRING_VALUE:
-					params[param_idx].string_value = strdup((char *)event.data.scalar.value);
-					break;
-				default:
-					fprintf(stderr, "Error: Value case %d unknown.\n", params[param_idx].value_case);
-					return -1;
-				}
-			}
-			else
-			{
-				// Unexpected event type
-				printf("Error: Unexpected YAML scalar value format: %s\nAllowed values are: key, type, value\n", (char *)event.data.scalar.value);
-				return -1;
-			}
-		default:
-			break;
-		}
-		if (event.type == YAML_SEQUENCE_END_EVENT || event.type == YAML_DOCUMENT_END_EVENT)
-			break;
-
-		yaml_event_delete(&event);
-	}
-
-	// Insert ConfigParameter into ModuleConfig
-	module_config->n_parameters = param_count;
-	module_config->parameters = malloc(sizeof(ConfigParameter *) * param_count);
-	for (size_t i = 0; i < param_count; i++)
-	{
-		module_config->parameters[i] = &params[i];
-	}
-
-	cleanup_resources(&parser, &event, fh);
-
-	return 0;
-}
 
 static int slash_csp_configure_module(struct slash *slash)
 {
@@ -823,7 +644,7 @@ static int slash_csp_configure_module(struct slash *slash)
 	module_param.name = name;
 
 	// Insert packed pipeline definition into parameter
-	if (param_push_single(&module_param, -1, buffer, 0, node, timeout, paramver, ack_with_pull) < 0)
+	if (param_push_single(&module_param, -1, CSP_PRIO_NORM, buffer, 0, node, timeout, paramver, ack_with_pull) < 0)
 	{
 		printf("No response\n");
 		return SLASH_EIO;
@@ -860,146 +681,146 @@ char *get_custom_metadata_string(Metadata *data, char *key)
 	return found_item->string_value;
 }
 
-static int slash_csp_buffer_get(struct slash *slash)
-{
-	unsigned int node = slash_dfl_node; // fetch current node id
-	unsigned int timeout = slash_dfl_timeout;
-	unsigned int paramver = 2;
-	int ack_with_pull = true;
-	int save_png = false;
-	int front = false;
-	optparse_t *parser = optparse_new("get", "<offset>");
-	optparse_add_help(parser);
-	optparse_add_unsigned(parser, 'n', "node", "NUM", 0, &node, "node (default = <env>)");
-	optparse_add_unsigned(parser, 't', "timeout", "NUM", 0, &timeout, "timeout (default = <env>)");
-	optparse_add_unsigned(parser, 'v', "paramver", "NUM", 0, &paramver, "parameter system version (default = 2)");
-	optparse_add_set(parser, 'a', "no_ack_push", 0, &ack_with_pull, "Disable ack with param push queue");
-	optparse_add_set(parser, 's', "save_png", 1, &save_png, "Save downloaded data as png (default = false)");
-	optparse_add_set(parser, 'f', "front", 1, &front, "Index from front/newest image (default = false)");
+// static int slash_csp_buffer_get(struct slash *slash)
+// {
+// 	unsigned int node = slash_dfl_node; // fetch current node id
+// 	unsigned int timeout = slash_dfl_timeout;
+// 	unsigned int paramver = 2;
+// 	int ack_with_pull = true;
+// 	int save_png = false;
+// 	int front = false;
+// 	optparse_t *parser = optparse_new("get", "<offset>");
+// 	optparse_add_help(parser);
+// 	optparse_add_unsigned(parser, 'n', "node", "NUM", 0, &node, "node (default = <env>)");
+// 	optparse_add_unsigned(parser, 't', "timeout", "NUM", 0, &timeout, "timeout (default = <env>)");
+// 	optparse_add_unsigned(parser, 'v', "paramver", "NUM", 0, &paramver, "parameter system version (default = 2)");
+// 	optparse_add_set(parser, 'a', "no_ack_push", 0, &ack_with_pull, "Disable ack with param push queue");
+// 	optparse_add_set(parser, 's', "save_png", 1, &save_png, "Save downloaded data as png (default = false)");
+// 	optparse_add_set(parser, 'f', "front", 1, &front, "Index from front/newest image (default = false)");
 
-	int argi = optparse_parse(parser, slash->argc - 1, (const char **)slash->argv + 1);
-	if (argi < 0)
-	{
-		optparse_del(parser);
-		return SLASH_EINVAL;
-	}
+// 	int argi = optparse_parse(parser, slash->argc - 1, (const char **)slash->argv + 1);
+// 	if (argi < 0)
+// 	{
+// 		optparse_del(parser);
+// 		return SLASH_EINVAL;
+// 	}
 
-	/* Check if tail offset is present */
-	if (++argi >= slash->argc)
-	{
-		printf("Missing tail offset\n");
-		return SLASH_EINVAL;
-	}
+// 	/* Check if tail offset is present */
+// 	if (++argi >= slash->argc)
+// 	{
+// 		printf("Missing tail offset\n");
+// 		return SLASH_EINVAL;
+// 	}
 
-	/* Fetch tail offset parameter */
-	int input_offset = atoi(slash->argv[argi]);
-	if (front)
-		input_offset *= -1;
+// 	/* Fetch tail offset parameter */
+// 	int input_offset = atoi(slash->argv[argi]);
+// 	if (front)
+// 		input_offset *= -1;
 
-	/* Download image file */
-	unsigned char *image_data = (unsigned char *)malloc(10000000); // image buffer
-	int size_down = vmem_ring_download(node, timeout, "images", input_offset, (char *)image_data, 2, 1);
-	if (size_down == -1)
-	{
-		printf("Download failed\n");
-		return SLASH_EINVAL;
-	}
-	printf("Downloaded %d bytes from node %d in ring buffer '%s' at offset %d\n", size_down, node, "images", input_offset);
+// 	/* Download image file */
+// 	unsigned char *image_data = (unsigned char *)malloc(10000000); // image buffer
+// 	int size_down = vmem_ring_download(node, timeout, "images", input_offset, (char *)image_data, 2, 1);
+// 	if (size_down == -1)
+// 	{
+// 		printf("Download failed\n");
+// 		return SLASH_EINVAL;
+// 	}
+// 	printf("Downloaded %d bytes from node %d in ring buffer '%s' at offset %d\n", size_down, node, "images", input_offset);
 
-	/* Extract image metadata */
-	size_t offset = 0;
-	uint32_t metadata_size = *((uint32_t *)(image_data));
-	offset += sizeof(uint32_t);
-	Metadata *meta = metadata__unpack(NULL, metadata_size, (uint8_t *)image_data + offset);
-	offset += metadata_size;
-	uint32_t image_data_size = meta->size;
+// 	/* Extract image metadata */
+// 	size_t offset = 0;
+// 	uint32_t metadata_size = *((uint32_t *)(image_data));
+// 	offset += sizeof(uint32_t);
+// 	Metadata *meta = metadata__unpack(NULL, metadata_size, (uint8_t *)image_data + offset);
+// 	offset += metadata_size;
+// 	uint32_t image_data_size = meta->size;
 
-	char *enc = get_custom_metadata_string(meta, "enc");
-	int is_encoded = enc != NULL && !strcmp(enc, "jxl");
-	printf("Encoded: %d\n", is_encoded);
-	int width = meta->width;
-	int height = meta->height;
-	int channels = meta->channels;
-	int stride = width * channels;
-	uint8_t *data = image_data + offset;
+// 	char *enc = get_custom_metadata_string(meta, "enc");
+// 	int is_encoded = enc != NULL && !strcmp(enc, "jxl");
+// 	printf("Encoded: %d\n", is_encoded);
+// 	int width = meta->width;
+// 	int height = meta->height;
+// 	int channels = meta->channels;
+// 	int stride = width * channels;
+// 	uint8_t *data = image_data + offset;
 
-	if (is_encoded)
-	{
-		/* Decode image data using JXL */
-		JxlDecoder *decoder = JxlDecoderCreate(NULL);
-		if (JxlDecoderSetInput(decoder, image_data + offset, image_data_size) == JXL_DEC_ERROR)
-		{
-			printf("Error: Could not decode image\n");
-			return SLASH_EINVAL;
-		}
+// 	if (is_encoded)
+// 	{
+// 		/* Decode image data using JXL */
+// 		JxlDecoder *decoder = JxlDecoderCreate(NULL);
+// 		if (JxlDecoderSetInput(decoder, image_data + offset, image_data_size) == JXL_DEC_ERROR)
+// 		{
+// 			printf("Error: Could not decode image\n");
+// 			return SLASH_EINVAL;
+// 		}
 
-		JxlBasicInfo basic_info;
-		size_t buffer_size;
-		JxlPixelFormat format;
-		uint8_t combined_channels;
-		JxlDecoderSubscribeEvents(decoder, JXL_DEC_BASIC_INFO | JXL_DEC_FULL_IMAGE | JXL_DEC_BASIC_INFO);
+// 		JxlBasicInfo basic_info;
+// 		size_t buffer_size;
+// 		JxlPixelFormat format;
+// 		uint8_t combined_channels;
+// 		JxlDecoderSubscribeEvents(decoder, JXL_DEC_BASIC_INFO | JXL_DEC_FULL_IMAGE | JXL_DEC_BASIC_INFO);
 
-		while (1)
-		{
-			JxlDecoderStatus status = JxlDecoderProcessInput(decoder);
+// 		while (1)
+// 		{
+// 			JxlDecoderStatus status = JxlDecoderProcessInput(decoder);
 
-			if (status == JXL_DEC_ERROR)
-			{
-				printf("Error: Jxl decoder error\n");
-				return SLASH_EINVAL;
-			}
+// 			if (status == JXL_DEC_ERROR)
+// 			{
+// 				printf("Error: Jxl decoder error\n");
+// 				return SLASH_EINVAL;
+// 			}
 
-			if (status == JXL_DEC_SUCCESS)
-			{
-				break;
-			}
+// 			if (status == JXL_DEC_SUCCESS)
+// 			{
+// 				break;
+// 			}
 
-			if (status == JXL_DEC_FULL_IMAGE)
-			{
-				break;
-			}
+// 			if (status == JXL_DEC_FULL_IMAGE)
+// 			{
+// 				break;
+// 			}
 
-			if (status == JXL_DEC_BASIC_INFO)
-			{
-				JxlDecoderGetBasicInfo(decoder, &basic_info);
-				combined_channels = basic_info.num_color_channels + basic_info.num_extra_channels;
-				format.num_channels = combined_channels;
-				format.data_type = JXL_TYPE_UINT8;
-				format.endianness = JXL_NATIVE_ENDIAN;
-				format.align = 0;
-			}
+// 			if (status == JXL_DEC_BASIC_INFO)
+// 			{
+// 				JxlDecoderGetBasicInfo(decoder, &basic_info);
+// 				combined_channels = basic_info.num_color_channels + basic_info.num_extra_channels;
+// 				format.num_channels = combined_channels;
+// 				format.data_type = JXL_TYPE_UINT8;
+// 				format.endianness = JXL_NATIVE_ENDIAN;
+// 				format.align = 0;
+// 			}
 
-			if (status == JXL_DEC_NEED_IMAGE_OUT_BUFFER)
-			{
-				JxlDecoderImageOutBufferSize(decoder, &format, &buffer_size);
-				data = (uint8_t *)malloc(buffer_size);
-				JxlDecoderSetImageOutBuffer(decoder, &format, data, buffer_size);
-			}
-		}
+// 			if (status == JXL_DEC_NEED_IMAGE_OUT_BUFFER)
+// 			{
+// 				JxlDecoderImageOutBufferSize(decoder, &format, &buffer_size);
+// 				data = (uint8_t *)malloc(buffer_size);
+// 				JxlDecoderSetImageOutBuffer(decoder, &format, data, buffer_size);
+// 			}
+// 		}
 
-		if (basic_info.xsize != width || basic_info.ysize != height || combined_channels != channels)
-		{
-			printf("Info: Dimensions given by metadata do not match decoded dimensions\n");
-		}
-	}
+// 		if (basic_info.xsize != width || basic_info.ysize != height || combined_channels != channels)
+// 		{
+// 			printf("Info: Dimensions given by metadata do not match decoded dimensions\n");
+// 		}
+// 	}
 
-	if (save_png)
-	{
-		/* Save decoded image data */
-		char filename[20];
-		sprintf(filename, "image_%s.png", meta->camera);
-		int write_success = stbi_write_png(filename, width, height, channels, data, stride);
-		if (!write_success)
-		{
-			fprintf(stderr, "Error writing image to %s\n", filename);
-			return SLASH_EINVAL;
-		}
-		else
-		{
-			printf("Image saved as %s\n", filename);
-		}
-	}
-	return SLASH_SUCCESS;
-}
+// 	if (save_png)
+// 	{
+// 		/* Save decoded image data */
+// 		char filename[20];
+// 		sprintf(filename, "image_%s.png", meta->camera);
+// 		int write_success = stbi_write_png(filename, width, height, channels, data, stride);
+// 		if (!write_success)
+// 		{
+// 			fprintf(stderr, "Error writing image to %s\n", filename);
+// 			return SLASH_EINVAL;
+// 		}
+// 		else
+// 		{
+// 			printf("Image saved as %s\n", filename);
+// 		}
+// 	}
+// 	return SLASH_SUCCESS;
+// }
 
-slash_command_sub(ippb, get, slash_csp_buffer_get, "[OPTIONS...] <offset>", "Fetch image at <offset> from the DISCO-2 ring-buffer (0 = oldest, -1 = newest)");
+// slash_command_sub(ippb, get, slash_csp_buffer_get, "[OPTIONS...] <offset>", "Fetch image at <offset> from the DISCO-2 ring-buffer (0 = oldest, -1 = newest)");

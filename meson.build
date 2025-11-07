@@ -5,6 +5,7 @@ param_dep = dependency('param', fallback : ['param', 'param_dep'])
 proto_c_dep = dependency('libprotobuf-c', fallback: ['protobuf-c', 'proto_c_dep'])
 jxl_dep = dependency('libjxl', version: '>= 0.7.0')
 brotli_dep = dependency('libbrotlienc')
+yaml_dep = dependency('yaml-0.1')
 
 csp_ippc_src = files([
 	'src/protobuf/pipeline_config.pb-c.c',
@@ -37,6 +38,20 @@ csp_ippc_dep = declare_dependency(include_directories : csp_ippc_inc, link_with 
 #     'extract_pipeline',
 #     sources: [
 # 		'src/extract_pipeline.c',
+# 		'src/protobuf/pipeline_config.pb-c.c',
+# 		'src/protobuf/module_config.pb-c.c',
+# 		'src/protobuf/metadata.pb-c.c',
+# 		],
+#     include_directories: csp_ippc_inc,
+#     dependencies: [proto_c_dep, yaml_dep],
+#     install: true,
+# 	link_args: ['-ldl'],
+# )
+
+# extract_module = executable(
+#     'extract_module',
+#     sources: [
+# 		'src/extract_module.c',
 # 		'src/protobuf/pipeline_config.pb-c.c',
 # 		'src/protobuf/module_config.pb-c.c',
 # 		'src/protobuf/metadata.pb-c.c',

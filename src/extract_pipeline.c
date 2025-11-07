@@ -87,8 +87,6 @@ int consume_event(struct parser_state *s, yaml_event_t *event)
 {
     char *value;
 
-    printf("state=%d event=%d\n", s->state, event->type);
-
     switch (s->state)
     {
     case STATE_START:
@@ -207,7 +205,7 @@ int consume_event(struct parser_state *s, yaml_event_t *event)
             }
             break;
         case YAML_MAPPING_END_EVENT:
-            printf("Completed module: %s with %zu implementations\n", s->m.name, s->n_implementations);
+            // printf("Completed module: %s with %zu implementations\n", s->m.name, s->n_implementations);
             // allocate new module in list
             ModuleDefinition *temp = realloc(s->mlist, ++(s->n_modules) * sizeof(ModuleDefinition));
             if (!(temp))
@@ -299,9 +297,9 @@ int consume_event(struct parser_state *s, yaml_event_t *event)
             }
             break;
         case YAML_MAPPING_END_EVENT:
-            printf("  Completed implementation: param_id=%d effort_level=%d\n",
-                   s->i.param_id,
-                   s->i.effort_level);
+            // printf("  Completed implementation: param_id=%d effort_level=%d\n",
+            //        s->i.param_id,
+            //        s->i.effort_level);
             // allocate new implementation in list
             Implementation *temp = realloc(s->ilist, ++(s->n_implementations) * sizeof(Implementation));
             if (!(temp))
@@ -379,17 +377,12 @@ int consume_event(struct parser_state *s, yaml_event_t *event)
     return 0;
 }
 
-int main(int argc, char **argv)
+/* Parse a YAML file and populate a PipelineDefinition structure.
+   Returns 0 on success, -1 on failure. The returned PipelineDefinition
+   will reference ModuleDefinition objects allocated internally; caller
+   should ensure lifetime until packing or copying. */
+int parse_pipeline_yaml_file(const char *filename, PipelineDefinition *pipeline)
 {
-    if (argc < 2)
-    {
-        printf("Usage: %s <pipeline-config-file>\n", argv[0]);
-        exit(EXIT_FAILURE);
-    }
-
-    const char *filename = argv[1];
-    printf("Extracting pipeline configuration from %s\n", filename);
-
     yaml_parser_t parser;
     FILE *fh = NULL;
     if (initialize_parser(filename, &parser, fh) < 0)
@@ -429,12 +422,33 @@ int main(int argc, char **argv)
         fclose(fh);
     }
 
-    PipelineDefinition pipeline = PIPELINE_DEFINITION__INIT;
-    pipeline.n_modules = state.n_modules;
+    pipeline->n_modules = state.n_modules;
     for (size_t i = 0; i < state.n_modules; i++)
     {
-        pipeline.modules = realloc(pipeline.modules, (i + 1) * sizeof(ModuleDefinition *));
-        pipeline.modules[i] = &state.mlist[i];
+        pipeline->modules = realloc(pipeline->modules, (i + 1) * sizeof(ModuleDefinition *));
+        pipeline->modules[i] = &state.mlist[i];
+    }
+
+    return 0;
+}
+
+/* CLI wrapper that delegates to parse_pipeline_yaml_file for testing */
+int main(int argc, char **argv)
+{
+    if (argc < 2)
+    {
+        printf("Usage: %s <pipeline-config-file>\n", argv[0]);
+        exit(EXIT_FAILURE);
+    }
+
+    const char *filename = argv[1];
+    printf("Extracting pipeline configuration from %s\n", filename);
+
+    PipelineDefinition pipeline = PIPELINE_DEFINITION__INIT;
+    if (parse_pipeline_yaml_file(filename, &pipeline) < 0)
+    {
+        fprintf(stderr, "Failed to parse pipeline yaml %s\n", filename);
+        return -1;
     }
 
     // print pipeline
