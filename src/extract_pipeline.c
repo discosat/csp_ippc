@@ -478,7 +478,8 @@ int parse_pipeline_yaml_file(const char *filename, PipelineDefinition *pipeline)
             return -1;
         }
         /* Initialize then copy scalars */
-        *dst = MODULE_DEFINITION__INIT;
+        /* Initialize then copy scalars */
+        module_definition__init(dst);
         dst->n_implementations = src->n_implementations;
 
         /* Copy name string if present */
@@ -514,7 +515,8 @@ int parse_pipeline_yaml_file(const char *filename, PipelineDefinition *pipeline)
                     return -1;
                 }
                 /* copy primitive fields */
-                *d_impl = IMPLEMENTATION__INIT;
+                /* copy primitive fields */
+                implementation__init(d_impl);
                 d_impl->param_id = s_impl->param_id;
                 d_impl->effort_level = s_impl->effort_level;
                 /* if Implementation had any string fields, strdup them here */
