@@ -319,7 +319,7 @@ static int slash_csp_configure_pipeline(struct slash *slash)
 	pipeline_config.name = name;
 
 	// Insert packed pipeline definition into parameter
-	if (param_push_single(&pipeline_config, -1, buffer, 0, node, timeout, paramver, ack_with_pull) < 0)
+	if (param_push_single(&pipeline_config, -1, 0, buffer, 0, node, timeout, paramver, ack_with_pull) < 0)
 	{
 		printf("No response\n");
 		return SLASH_EIO;
@@ -546,7 +546,7 @@ static int slash_csp_configure_module(struct slash *slash)
 	module_param.name = name;
 
 	// Insert packed pipeline definition into parameter
-	if (param_push_single(&module_param, -1, buffer, 0, node, timeout, paramver, ack_with_pull) < 0)
+	if (param_push_single(&module_param, -1, 0, buffer, 0, node, timeout, paramver, ack_with_pull) < 0)
 	{
 		printf("No response\n");
 		return SLASH_EIO;
@@ -582,6 +582,7 @@ char *get_custom_metadata_string(Metadata *data, char *key)
     return found_item->string_value;
 }
 
+/* COMMENTED OUT: Requires vmem_ring_download which is not available in upstream libparam
 static int slash_csp_buffer_get(struct slash *slash)
 {
 	unsigned int node = slash_dfl_node; // fetch current node id
@@ -606,18 +607,18 @@ static int slash_csp_buffer_get(struct slash *slash)
 		return SLASH_EINVAL;
 	}
 
-	/* Check if tail offset is present */
+	// Check if tail offset is present
 	if (++argi >= slash->argc)
 	{
 		printf("Missing tail offset\n");
 		return SLASH_EINVAL;
 	}
 
-	/* Fetch tail offset parameter */
+	// Fetch tail offset parameter
 	int input_offset = atoi(slash->argv[argi]);
 	if (front) input_offset *= -1;
 
-	/* Download image file */
+	// Download image file
 	unsigned char *image_data = (unsigned char *)malloc(10000000); // image buffer
 	int size_down = vmem_ring_download(node, timeout, "images", input_offset, (char *)image_data, 2, 1);
 	if (size_down == -1) {
@@ -625,12 +626,12 @@ static int slash_csp_buffer_get(struct slash *slash)
 		return SLASH_EINVAL;
 	}
 	printf("Downloaded %d bytes from node %d in ring buffer '%s' at offset %d\n", size_down, node, "images", input_offset);
-	
-	/* Extract image metadata */
+
+	// Extract image metadata
 	size_t offset = 0;
-	uint32_t metadata_size = *((uint32_t *)(image_data)); 
+	uint32_t metadata_size = *((uint32_t *)(image_data));
 	offset += sizeof(uint32_t);
-	Metadata *meta = metadata__unpack(NULL, metadata_size, (uint8_t *) image_data + offset); 
+	Metadata *meta = metadata__unpack(NULL, metadata_size, (uint8_t *) image_data + offset);
 	offset += metadata_size;
 	uint32_t image_data_size = meta->size;
 
@@ -645,7 +646,7 @@ static int slash_csp_buffer_get(struct slash *slash)
 
 	if (is_encoded)
 	{
-		/* Decode image data using JXL */
+		// Decode image data using JXL
 		JxlDecoder* decoder = JxlDecoderCreate(NULL);
 		if (JxlDecoderSetInput(decoder, image_data + offset, image_data_size) == JXL_DEC_ERROR)
 		{
@@ -658,7 +659,7 @@ static int slash_csp_buffer_get(struct slash *slash)
 		JxlPixelFormat format;
 		uint8_t combined_channels;
 		JxlDecoderSubscribeEvents(decoder, JXL_DEC_BASIC_INFO | JXL_DEC_FULL_IMAGE | JXL_DEC_BASIC_INFO);
-		
+
 		while (1)
 		{
 			JxlDecoderStatus status = JxlDecoderProcessInput(decoder);
@@ -669,25 +670,25 @@ static int slash_csp_buffer_get(struct slash *slash)
 				return SLASH_EINVAL;
 			}
 
-			if (status == JXL_DEC_SUCCESS) 
-			{
-				break;
-			}
-			
-			if (status == JXL_DEC_FULL_IMAGE) 
+			if (status == JXL_DEC_SUCCESS)
 			{
 				break;
 			}
 
-			if (status == JXL_DEC_BASIC_INFO) 
+			if (status == JXL_DEC_FULL_IMAGE)
+			{
+				break;
+			}
+
+			if (status == JXL_DEC_BASIC_INFO)
 			{
 				JxlDecoderGetBasicInfo(decoder, &basic_info);
 				combined_channels = basic_info.num_color_channels + basic_info.num_extra_channels;
-				format.num_channels = combined_channels; format.data_type = JXL_TYPE_UINT8; 
+				format.num_channels = combined_channels; format.data_type = JXL_TYPE_UINT8;
 				format.endianness = JXL_NATIVE_ENDIAN; format.align = 0;
 			}
-			
-			if (status == JXL_DEC_NEED_IMAGE_OUT_BUFFER) 
+
+			if (status == JXL_DEC_NEED_IMAGE_OUT_BUFFER)
 			{
 				JxlDecoderImageOutBufferSize(decoder, &format, &buffer_size);
 				data = (uint8_t *)malloc(buffer_size);
@@ -703,7 +704,7 @@ static int slash_csp_buffer_get(struct slash *slash)
 
 	if (save_png)
 	{
-		/* Save decoded image data */
+		// Save decoded image data
 		char filename[20];
 		sprintf(filename, "image_%s.png", meta->camera);
 		int write_success = stbi_write_png(filename, width, height, channels, data, stride);
@@ -721,5 +722,6 @@ static int slash_csp_buffer_get(struct slash *slash)
 }
 
 slash_command_sub(ippb, get, slash_csp_buffer_get, "[OPTIONS...] <offset>", "Fetch image at <offset> from the DISCO-2 ring-buffer (0 = oldest, -1 = newest)");
+*/
 
 
